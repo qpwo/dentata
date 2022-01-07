@@ -108,5 +108,7 @@
             ":automergeTypes"
         ]
     },
-    "dependencies": {}
+    "dependencies": {
+        "immer": "^9.0.7"
+    }
 }
