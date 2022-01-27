@@ -1,4 +1,4 @@
-import { Draft, produce } from "immer"
+// import { Draft, produce } from "immer"
 // import { Diff, diff as calcDiff } from "deep-diff"
 import { difference, intersection, isEqual } from "lodash"
 type Id = string
@@ -24,16 +24,14 @@ type Obj = Record<PropertyKey, any>
 
 export class Dentata<T extends ValidTree = any> {
     private data: T
-    private children: { [K in KeyOf<T>]?: Record<Id, Dentata> } // TODO INVARIANT: No empty subrecords
-    private changeListeners: Record<Id, Listener<T>>
-    private deleteListeners: (() => void)[]
-    private parent: undefined | Dentata
+    private children: { [K in KeyOf<T>]?: Record<Id, Dentata> } = {} // TODO check INVARIANT: No empty subrecords
+    private changeListeners: Record<Id, Listener<T>> = {}
+    private deleteListeners: (() => void)[] = []
+    public parent: undefined | Dentata
     private fromKey: undefined | string
+    public deleted = false
     constructor(data: T, __?: { parent: Dentata; fromKey: string }) {
         this.data = data
-        this.children = {}
-        this.changeListeners = {}
-        this.deleteListeners = []
         if (__ != null) {
             this.parent = __.parent
             this.fromKey = __.fromKey
@@ -66,10 +64,10 @@ export class Dentata<T extends ValidTree = any> {
         const id = makeId()
         // @ts-expect-error
         const d = new Dentata(this.data[key], { parent: this, fromKey: key })
-        if (this.children) {
-            // TODO make if not exists
-            this.children[key][id] = d
-        }
+        if (!hasKey(this.children, key)) this.children[key] = { [id]: d }
+        const ck = this.children[key]
+        if (ck == null) throw Error("unreachable")
+        ck[id] = d
         // @ts-expect-error
         return d
     }
@@ -86,11 +84,11 @@ export class Dentata<T extends ValidTree = any> {
         this.__handleChange(oldData, this.data)
     }
 
-    immerUpdate(mutate: (draft: Draft<T>) => void) {
-        const oldData = this.data
-        this.data = produce(this.data, mutate)
-        this.__handleChange(oldData, this.data)
-    }
+    // immerUpdate(mutate: (draft: Draft<T>) => void) {
+    //     const oldData = this.data
+    //     this.data = produce(this.data, mutate)
+    //     this.__handleChange(oldData, this.data)
+    // }
 
     onChange(handleChange: Listener<T>): Unsubscribe {
         const id = makeId()
@@ -123,28 +121,13 @@ export class Dentata<T extends ValidTree = any> {
         if (!(hasListeners || hasChildren)) return
         if (!isRecord(newData)) {
             if (!skipEqualityCheck && isEqual(oldData, newData)) return
-            // TODO: extract below loop into method
-            for (const [id, listener] of Object.entries(this.changeListeners)) {
-                listener(
-                    newData,
-                    oldData,
-                    "notobj",
-                    () => delete this.changeListeners[id],
-                )
-            }
+            this.notifyChangeListeners(newData, oldData, "notobj")
             return
         }
         const diff = getKeyDiff(oldData as Obj, newData as Obj) as KeyDiff<T>
         if (diff === "nodiff") return
         if (diff === "notobj") throw Error("uncreachable")
-        for (const [id, listener] of Object.entries(this.changeListeners)) {
-            listener(
-                newData,
-                oldData,
-                diff,
-                () => delete this.changeListeners[id],
-            )
-        }
+        this.notifyChangeListeners(newData, oldData, diff)
         if (!hasChildren) return
         for (const key of diff.changed) {
             if (hasKey(this.children, key)) {
@@ -166,19 +149,26 @@ export class Dentata<T extends ValidTree = any> {
         this?.parent?.__handleChildChange(this.fromKey!, this.data)
         // we don't do anything with added keys
     }
+    notifyChangeListeners(newData: T, oldData: T, diff: KeyDiff<T>) {
+        for (const [id, listener] of Object.entries(this.changeListeners)) {
+            listener(
+                newData,
+                oldData,
+                diff,
+                () => delete this.changeListeners[id],
+            )
+        }
+    }
 
     __handleChildChange<K extends KeyOf<T>>(key: K, new_: T[K]) {
         // @ts-expect-error
         const oldData = { ...this.data }
         this.data[key] = new_
-        for (const [id, listener] of Object.entries(this.changeListeners)) {
-            listener(
-                this.data,
-                oldData,
-                { changed: [key], deleted: [], added: [] },
-                () => delete this.changeListeners[id],
-            )
-        }
+        this.notifyChangeListeners(this.data, oldData, {
+            changed: [key],
+            deleted: [],
+            added: [],
+        })
     }
 
     // called by parent only, but never by child or self
@@ -191,9 +181,11 @@ export class Dentata<T extends ValidTree = any> {
         for (const f of this.deleteListeners) {
             f()
         }
-        clearObj(this.children)
-        clearObj(this.changeListeners)
-        clearObj(this.deleteListeners)
+        // clearObj(this.children)
+        // clearObj(this.changeListeners)
+        // clearObj(this.deleteListeners)
+        clearObj(this) // TODO: is this okay? Does it even help?
+        this.deleted = true
     }
 
     // called by child or by self, but never by parent
