@@ -147,6 +147,9 @@ export class Cursor<T extends ValidTree = any> {
     }
 }
 
+/** Alias for Cursor */
+export const Cur = Cursor
+
 /** Read-only cursor */
 export class ROCursor<T extends ValidTree = any> {
     constructor(private cursor: Cursor) {}
@@ -183,6 +186,9 @@ export class ROCursor<T extends ValidTree = any> {
         this.cursor.clearListeners()
     }
 }
+
+/** Alias for read-only cursor */
+export const ROC = ROCursor
 
 function isSubTree(x: unknown): x is SubTree {
     return typeof x === "object" && x !== null && !Array.isArray(x)
