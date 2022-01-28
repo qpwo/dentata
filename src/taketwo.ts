@@ -98,8 +98,8 @@ export class Dentata<T extends ValidTree = any> {
         clearObj(this.changeListeners)
         clearObj(this.deleteListeners)
         if (recursive) {
-            for (const key of keysOf(this.children)) {
-                for (const child of Object.values(this.children[key]!)) {
+            for (const map of valuesOf(this.children)) {
+                for (const child of Object.values(map!)) {
                     child.clearListeners({ recursive: true })
                 }
             }
@@ -141,16 +141,6 @@ export class Dentata<T extends ValidTree = any> {
         this?.parent?.__handleChildChange(this.fromKey!, this.data)
         // we don't do anything with added keys
     }
-    notifyChangeListeners(newData: T, oldData: T, diff: KeyDiff<T>) {
-        for (const [id, listener] of Object.entries(this.changeListeners)) {
-            listener(
-                newData,
-                oldData,
-                diff,
-                () => delete this.changeListeners[id],
-            )
-        }
-    }
 
     __handleChildChange<K extends KeyOf<T>>(key: K, new_: T[K]) {
         // @ts-expect-error
@@ -178,6 +168,17 @@ export class Dentata<T extends ValidTree = any> {
         // clearObj(this.deleteListeners)
         clearObj(this) // TODO: is this okay? Does it even help?
         this.deleted = true
+    }
+
+    private notifyChangeListeners(newData: T, oldData: T, diff: KeyDiff<T>) {
+        for (const [id, listener] of Object.entries(this.changeListeners)) {
+            listener(
+                newData,
+                oldData,
+                diff,
+                () => delete this.changeListeners[id],
+            )
+        }
     }
 
     // called by child or by self, but never by parent
@@ -208,6 +209,10 @@ function numKeys(o: any): number {
 
 function keysOf<T extends Obj>(o: T): (keyof T)[] {
     return Object.keys(o)
+}
+
+function valuesOf<T extends Obj>(o: T): T[keyof T][] {
+    return Object.values(o)
 }
 
 /* function test() {
