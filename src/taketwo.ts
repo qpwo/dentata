@@ -26,12 +26,12 @@ export class Dentata<T extends ValidTree = any> {
     private children: { [K in KeyOf<T>]?: Record<Id, Dentata> } = {} // TODO check INVARIANT: No empty subrecords
     private changeListeners: Record<Id, Listener<T>> = {}
     private deleteListeners: (() => void)[] = []
-    public parent: undefined | Dentata
-    private fromKey: undefined | string
+    public parent?: Dentata
+    public fromKey?: string
     public deleted = false
-    constructor(data: T, __?: { parent: Dentata; fromKey: string }) {
+    constructor(data: T, __: { parent: Dentata; fromKey: string } | undefined) {
         this.data = data
-        if (__ != null) {
+        if (__ !== undefined) {
             this.parent = __.parent
             this.fromKey = __.fromKey
         }
@@ -49,6 +49,12 @@ export class Dentata<T extends ValidTree = any> {
         this.__handleChange(oldData, newValue)
     }
 
+    update(makeNew: (old: Readonly<T>) => T) {
+        const oldData = this.data
+        this.data = makeNew(this.data)
+        this.__handleChange(oldData, this.data)
+    }
+
     select<K extends KeyOf<T>>(
         key: K,
         // @ts-expect-error
@@ -57,8 +63,7 @@ export class Dentata<T extends ValidTree = any> {
             throw Error("cannot select within primitives")
         if (Array.isArray(this.data))
             throw Error("selecting in arrays causes undefined behavior")
-        if (this.data == null)
-            throw Error("null data. (should be unreachable¿)")
+        if (this.data == null) throw Error("cannot select in null data")
 
         const id = makeId()
         // @ts-expect-error
@@ -76,18 +81,6 @@ export class Dentata<T extends ValidTree = any> {
     ): Dentata<T[K]> {
         return this.select(key)
     }
-
-    update(makeNew: (old: Readonly<T>) => T) {
-        const oldData = this.data
-        this.data = makeNew(this.data)
-        this.__handleChange(oldData, this.data)
-    }
-
-    // immerUpdate(mutate: (draft: Draft<T>) => void) {
-    //     const oldData = this.data
-    //     this.data = produce(this.data, mutate)
-    //     this.__handleChange(oldData, this.data)
-    // }
 
     onChange(handleChange: Listener<T>): Unsubscribe {
         const id = makeId()
