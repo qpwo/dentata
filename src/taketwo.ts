@@ -2,10 +2,21 @@
 // import { Diff, diff as calcDiff } from "deep-diff"
 type Id = string
 
-type ValidTree = string | number | boolean | NonLeaf
-// type NonLeaf = { [key: string]: ValidTree } | { [key: number]: ValidTree } | { [key: symbol]: ValidTree }
-type NonLeaf = { [key: PropertyKey]: ValidTree }
-type KeyOf<T> = T extends NonLeaf ? keyof T : never
+type Func = (...args: any[]) => any
+
+type ValidTree =
+    | bigint
+    | boolean
+    | null
+    | number
+    | string
+    | symbol
+    | Func
+    | SubTree
+    | ValidTree[]
+
+type SubTree = { [key: PropertyKey]: ValidTree }
+type KeyOf<T> = T extends SubTree ? keyof T : never
 type Listener<T> = (
     newVal: Readonly<T>,
     oldVal: Readonly<T>,
@@ -21,15 +32,20 @@ type KeyDiff<T> =
 
 type Obj = Record<PropertyKey, any>
 
+// TODO: references can go bad. get() and set() need to use a path.
 export class Dentata<T extends ValidTree = any> {
     private data: T
-    private children: { [K in KeyOf<T>]?: Record<Id, Dentata> } = {} // TODO check INVARIANT: No empty subrecords
+    private children: Partial<Record<keyof T, Dentata>> = {}
+    // private children: { [K in KeyOf<T>]?: Dentata } = {}
     private changeListeners: Record<Id, Listener<T>> = {}
     private deleteListeners: (() => void)[] = []
     public parent?: Dentata
-    public fromKey?: string
+    public fromKey?: PropertyKey
     public deleted = false
-    constructor(data: T, __: { parent: Dentata; fromKey: string } | undefined) {
+    constructor(
+        data: T,
+        __: { parent: Dentata; fromKey: PropertyKey } | undefined,
+    ) {
         this.data = data
         if (__ !== undefined) {
             this.parent = __.parent
@@ -40,6 +56,9 @@ export class Dentata<T extends ValidTree = any> {
     get<K extends KeyOf<T>>(key: K): Readonly<T[K]>
     get<K extends KeyOf<T>>(key?: K) {
         if (key === undefined) return this.data
+        if (!isPropertyKey(key)) throw Error(`invalid key: ${key}`)
+        if (!isSubTree(this.data))
+            throw Error(`tried to get(${key}) when data was not plain object`)
         return this.data[key]
     }
 
@@ -50,35 +69,25 @@ export class Dentata<T extends ValidTree = any> {
     }
 
     update(makeNew: (old: Readonly<T>) => T) {
+        if (typeof makeNew !== "function")
+            throw Error("update(makeNew) called without function argument")
         const oldData = this.data
         this.data = makeNew(this.data)
         this.__handleChange(oldData, this.data)
     }
 
-    select<K extends KeyOf<T>>(
-        key: K,
-        // @ts-expect-error
-    ): Dentata<T[K]> {
-        if (typeof this.data !== "object")
-            throw Error("cannot select within primitives")
-        if (Array.isArray(this.data))
-            throw Error("selecting in arrays causes undefined behavior")
-        if (this.data == null) throw Error("cannot select in null data")
-
-        const id = makeId()
-        // @ts-expect-error
+    select<K extends KeyOf<T>>(key: K): Dentata<T[K]> {
+        if (!isSubTree(this.data))
+            throw Error(
+                `tried to select(${key}) when data was not plain object`,
+            )
+        if (hasKey(this.children, key)) return this.children[key]!
         const d = new Dentata(this.data[key], { parent: this, fromKey: key })
-        if (!hasKey(this.children, key)) this.children[key] = { [id]: d }
-        const ck = this.children[key]
-        if (ck == null) throw Error("unreachable")
-        ck[id] = d
+        this.children[key] = d
         // @ts-expect-error
         return d
     }
-    s<K extends T extends NonLeaf ? keyof T : never>(
-        key: K,
-        // @ts-expect-error
-    ): Dentata<T[K]> {
+    s<K extends T extends SubTree ? keyof T : never>(key: K): Dentata<T[K]> {
         return this.select(key)
     }
 
@@ -98,10 +107,8 @@ export class Dentata<T extends ValidTree = any> {
         clearObj(this.changeListeners)
         clearObj(this.deleteListeners)
         if (recursive) {
-            for (const map of valuesOf(this.children)) {
-                for (const child of Object.values(map!)) {
-                    child.clearListeners({ recursive: true })
-                }
+            for (const child of valuesOf(this.children)) {
+                child.clearListeners({ recursive: true })
             }
         }
     }
@@ -110,62 +117,51 @@ export class Dentata<T extends ValidTree = any> {
     __handleChange(oldData: T, newData: T) {
         const hasListeners = Object.keys(this.changeListeners).length === 0
         const hasChildren = Object.keys(this.children).length === 0
-        if (!(hasListeners || hasChildren)) return
+        if (!hasListeners && !hasChildren) return
         if (!isRecord(newData)) {
             if (deepEquals(oldData, newData)) return
             this.notifyChangeListeners(newData, oldData, "notobj")
             return
         }
+        // TODO: What if value can be either object or primitive?
+        //  If you set an object to a primitive, then do child listeners get deleted properly?
         const diff = getKeyDiff(oldData as Obj, newData as Obj) as KeyDiff<T>
         if (diff === "nodiff") return
         if (diff === "notobj") throw Error("uncreachable")
         this.notifyChangeListeners(newData, oldData, diff)
         if (!hasChildren) return
         for (const key of diff.changed) {
-            if (hasKey(this.children, key)) {
-                for (const [_id, child] of Object.entries(
-                    this.children[key]!,
-                )) {
-                    child.__handleChange(oldData[key], newData[key])
-                }
-            }
+            this.children[key]?.__handleChange(oldData![key], newData![key])
         }
+
         for (const key of diff.deleted) {
-            if (hasKey(this.children, key)) {
-                for (const [id, child] of Object.entries(this.children[key]!)) {
-                    child.__handleDelete()
-                    this.removeChild(key, id)
-                }
-            }
+            this.children[key]?.__handleDelete()
+            delete this.children[key]
         }
-        this?.parent?.__handleChildChange(this.fromKey!, this.data)
+        this.parent?.__handleChildChange(this.fromKey!, this.data)
         // we don't do anything with added keys
     }
 
     __handleChildChange<K extends KeyOf<T>>(key: K, new_: T[K]) {
-        // @ts-expect-error
-        const oldData = { ...this.data }
+        if (!isSubTree(this.data)) throw Error("unreachable")
+        const oldData = { ...(this.data as Obj) } as T
         this.data[key] = new_
         this.notifyChangeListeners(this.data, oldData, {
             changed: [key],
             deleted: [],
             added: [],
         })
+        return
     }
 
     // called by parent only, but never by child or self
     __handleDelete() {
-        for (const key of keysOf(this.children)) {
-            for (const child of Object.values(this.children[key]!)) {
-                child.__handleDelete()
-            }
+        for (const child of valuesOf(this.children)) {
+            child.__handleDelete()
         }
         for (const f of this.deleteListeners) {
             f()
         }
-        // clearObj(this.children)
-        // clearObj(this.changeListeners)
-        // clearObj(this.deleteListeners)
         clearObj(this) // TODO: is this okay? Does it even help?
         this.deleted = true
     }
@@ -180,18 +176,18 @@ export class Dentata<T extends ValidTree = any> {
             )
         }
     }
+}
 
-    // called by child or by self, but never by parent
-    private removeChild(key: KeyOf<T>, id: Id) {
-        if (hasKey(this.children, key) && hasKey(this.children[key], id))
-            delete this.children[key]![id]
-        if (numKeys(this.children[key]) === 0) {
-            delete this.children[key]
-        }
+function isSubTree(x: unknown): x is SubTree {
+    return typeof x === "object" && x !== null && !Array.isArray(x)
+}
+function assertNonLeaf(x: unknown) {
+    if (!isSubTree(x)) {
+        throw Error("value is not object")
     }
 }
 
-function isRecord(x: unknown) {
+function isRecord(x: unknown): x is Obj {
     return typeof x === "object" && !Array.isArray(x) && x != null
 }
 
@@ -199,8 +195,13 @@ function makeId(): string {
     return Math.random().toString().slice(2)
 }
 
-function hasKey(o: any, key: PropertyKey) {
+function hasKey(o: any, key: PropertyKey): boolean {
     return Object.prototype.hasOwnProperty.call(o, key)
+}
+
+function isPropertyKey(x: unknown): x is PropertyKey {
+    const t = typeof x
+    return t === "string" || t === "symbol" || t === "number"
 }
 
 function numKeys(o: any): number {
@@ -208,11 +209,11 @@ function numKeys(o: any): number {
 }
 
 function keysOf<T extends Obj>(o: T): (keyof T)[] {
-    return Object.keys(o)
+    return Object.keys(o).filter(k => o[k] !== undefined)
 }
 
-function valuesOf<T extends Obj>(o: T): T[keyof T][] {
-    return Object.values(o)
+function valuesOf<T extends Obj>(o: T): Exclude<T[keyof T], undefined>[] {
+    return Object.values(o).filter(x => x !== undefined)
 }
 
 /* function test() {
