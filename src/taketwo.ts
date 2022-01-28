@@ -1,6 +1,5 @@
 // import { Draft, produce } from "immer"
 // import { Diff, diff as calcDiff } from "deep-diff"
-import { difference, intersection, isEqual } from "lodash"
 type Id = string
 
 type ValidTree = string | number | boolean | NonLeaf
@@ -115,12 +114,12 @@ export class Dentata<T extends ValidTree = any> {
     }
 
     // called by self or parent, but never by child
-    __handleChange(oldData: T, newData: T, skipEqualityCheck = false) {
+    __handleChange(oldData: T, newData: T) {
         const hasListeners = Object.keys(this.changeListeners).length === 0
         const hasChildren = Object.keys(this.children).length === 0
         if (!(hasListeners || hasChildren)) return
         if (!isRecord(newData)) {
-            if (!skipEqualityCheck && isEqual(oldData, newData)) return
+            if (deepEquals(oldData, newData)) return
             this.notifyChangeListeners(newData, oldData, "notobj")
             return
         }
@@ -134,7 +133,7 @@ export class Dentata<T extends ValidTree = any> {
                 for (const [_id, child] of Object.entries(
                     this.children[key]!,
                 )) {
-                    child.__handleChange(oldData[key], newData[key], true)
+                    child.__handleChange(oldData[key], newData[key])
                 }
             }
         }
@@ -237,7 +236,7 @@ function getKeyDiff<T extends Obj>(oldObj: T, newObj: T): KeyDiff<T> {
     const oldKeys = Object.keys(oldObj)
     const newKeys = Object.keys(newObj)
     const { deleted, added, overlap } = arrCompare(oldKeys, newKeys)
-    const changed = overlap.filter(k => !isEqual(oldObj[k], newObj[k]))
+    const changed = overlap.filter(k => !deepEquals(oldObj[k], newObj[k]))
     if (deleted.length === 0 && added.length === 0 && overlap.length === 0) {
         return "nodiff"
     }
@@ -254,16 +253,76 @@ function clearObj(o: Obj) {
 //     return Object.keys(o)
 // }
 
-function arrCompare<T extends PropertyKey[]>(oldArr: T, newArr: T) {
-    // This could maybe possibly be slow with thousands of keys so could optimize...
-    const deleted = difference(oldArr, newArr)
-    const added = difference(newArr, oldArr)
-    const overlap = intersection(oldArr, newArr)
-    return { deleted, added, overlap }
+function arrCompare<T>(
+    oldArr: T[],
+    newArr: T[],
+): { added: T[]; deleted: T[]; overlap: T[] } {
+    const so = new Set(oldArr)
+    const sn = new Set(newArr)
+    return {
+        added: Array.from(setDiff(sn, so)),
+        deleted: Array.from(setDiff(so, sn)),
+        overlap: Array.from(setIntersect(so, sn)),
+    }
+}
 
-    // const added = []
-    // const deleted = []
-    // const intersection = []
-    // oldArr.sort()
-    // newArr.sort()
+function setDiff<T>(a: Set<T>, b: Set<T>): Set<T> {
+    const d = new Set<T>()
+    a.forEach(x => !b.has(x) && d.add(x))
+    return d
+}
+
+function setIntersect<T>(a: Set<T>, b: Set<T>): Set<T> {
+    const I = new Set<T>()
+    a.forEach(x => b.has(x) && I.add(x))
+    return I
+}
+
+const deepEquals = memoize(deepEquals_, 60000)
+/** Works for json-like objects */
+function deepEquals_(a: any, b: any): boolean {
+    const isEq = a === b || (Number.isNaN(a) && Number.isNaN(b))
+    if (isEq) return true
+
+    // prettier-ignore
+    if (typeof a !== typeof b || // different types
+        typeof a !== "object" || // nonequal primitives
+        (a === null || b === null) // one is null but not other
+    )
+        return false
+
+    // So a and b are both either arrays or objects
+
+    const aArr = Array.isArray(a)
+    const bArr = Array.isArray(b)
+    if (aArr !== bArr) return false
+    if (aArr && bArr) {
+        if (a.length !== b.length) return false
+        return a.every((ai, i) => deepEquals(ai, b[i]))
+    }
+    // both regular objects
+    const ak = Object.keys(a)
+    const bk = Object.keys(b)
+    if (ak.length !== bk.length) return false
+    ak.sort()
+    bk.sort()
+    if (!ak.every((aki, i) => aki === bk[i])) return false
+    return ak.every(k => deepEquals(a[k], b[k]))
+}
+
+function memoize<Args extends any[], Result extends any>(
+    f: (...args: Args) => Result,
+    maxSize = -1,
+): (...args: Args) => Result {
+    const map = new Map<Args, Result>()
+    function g(...args: Args): Result {
+        if (map.has(args)) return map.get(args)!
+
+        if (maxSize > 0 && map.size >= maxSize) map.clear()
+
+        const result = f(...args)
+        map.set(args, result)
+        return result
+    }
+    return g
 }
