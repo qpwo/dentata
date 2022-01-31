@@ -1,9 +1,9 @@
-import { Cursor } from "./"
+import { Dent, Dentata } from "./"
 
 describe("blah", () => {
     it("basic", () => {
         // expect(sum(1, 1)).toEqual(2)
-        const c = new Cursor(5)
+        const c = new Dent(5)
         const x = c.get()
         expect(x).toEqual(5)
         c.onChange(newVal => console.log(`x was changed to ${newVal}`))
@@ -14,7 +14,7 @@ describe("blah", () => {
     })
     it("nested objects", () => {
         // expect(sum(1, 1)).toEqual(2)
-        const c = new Cursor({ x: { y: { z: 1 } } })
+        const c = new Dent({ x: { y: { z: 1 } } })
         c.onChange((newVal, oldVal) =>
             console.log(
                 `c  changed from to ${JSON.stringify(
@@ -35,16 +35,16 @@ describe("blah", () => {
         // zc.set(10)
     })
     it("arrays", () => {
-        const c = new Cursor([{ a: 1 }, { a: 2 }, { a: 3 }] as
+        const c = new Dent([{ a: 1 }, { a: 2 }, { a: 3 }] as
             | { a: number }[]
             | undefined)
-        const c1a = (c as Cursor<{ a: number }[]>).select(1).select("a")
+        const c1a = (c as Dent<{ a: number }[]>).select(1).select("a")
         expect(c1a.get()).toEqual(2)
         c.set(undefined)
         expect(c1a.get()).toEqual(undefined)
     })
     it("changes in both directions", () => {
-        const cur = new Cursor({
+        const cur = new Dent({
             a: {
                 b: { c: 1 },
             },
@@ -66,8 +66,8 @@ describe("blah", () => {
         expect(aChanged).toEqual(true)
         expect(cChanged).toEqual(true)
     })
-    it("cursors pointing in loop don't cause crash", () => {
-        const cur = new Cursor({
+    it("Dents pointing in loop don't cause crash", () => {
+        const cur = new Dent({
             a: {
                 b: { c: 1 },
             },
@@ -78,6 +78,30 @@ describe("blah", () => {
         const b2 = a1.select("b")
         b1.set({ c: 2 })
         b2.set({ c: 3 })
+    })
+    it("doesnt give type errors when you apply deep", () => {
+        const cur = new Dent({
+            a: {
+                b: { c: 1, g: 4 },
+                d: { e: 2 },
+            },
+            f: 3,
+        })
+        cur.apply(o => ({
+            ...o,
+            a: { ...o.a, b: { ...o.a.b, c: 5 } },
+        }))
+        cur.apply(o => {
+            // o.a.b.g = 5  // should give type error
+            return o
+        })
+    })
+    it("doesnt mutate input data", () => {
+        const o = { a: 1 }
+        const c = new Dentata(o)
+        c.select("a").set(2)
+        expect(o).toEqual({ a: 1 })
+        expect(c.get()).toEqual({ a: 2 })
     })
 })
 

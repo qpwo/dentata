@@ -1,21 +1,23 @@
 type Listener<T> = (newVal: DeepReadonly<T>, oldVal: DeepReadonly<T>) => void
 
-export class Cursor<T> {
+/** An extremely simple data tree */
+export class Dentata<T> {
     private listeners: Listener<T>[] = []
-    private children: Map<keyof T, Cursor<any>[]> = new Map()
+    private children: Map<keyof T, Dentata<any>[]> = new Map()
     constructor(
         private data: T,
-        private parent?: Cursor<any>,
+        private parent?: Dentata<any>,
         private fromKey?: PropertyKey,
     ) {
         if (data === undefined)
             throw Error("must instantiate with non-undefined data")
     }
+    /** Get the current value at the cursor */
     get(): DeepReadonly<T> {
         return this.data as DeepReadonly<T>
     }
-    /** Set data to `undefined` to remove all listeners and descendant cursors */
-    set(newVal: T, parentKnows = false) {
+    /** Set data of current cursor and notify relevant onChange listeners. Set to `undefined` to remove all listeners and descendant cursors. */
+    set(newVal: T, _parentKnows = false) {
         const oldVal = this.data
         this.data = newVal
         if (deepEquals(oldVal, newVal)) return
@@ -35,21 +37,42 @@ export class Cursor<T> {
         if (newVal === undefined) {
             this.clearListeners()
         }
-        if (!parentKnows)
+        if (!_parentKnows)
             this?.parent?.setFromBelow(this, this.fromKey!, newVal)
     }
 
+    /** Alias for get + set. Update the old value into a new value. Do not mutate the argument. */
     apply(update: (prev: DeepReadonly<T>) => T) {
         const new_ = update(this.data as DeepReadonly<T>)
         this.set(new_)
     }
 
+    /** Get a cursor deeper into the tree. It will be notified of parent changes and will tell parent if it changes (if there are listeners). */
+    select<K extends keyof T>(key: K) {
+        const c = new Dentata(this.data[key], this, key)
+        if (!this.children.has(key)) {
+            this.children.set(key, [])
+        }
+        this.children.get(key)?.push(c)
+        return c
+    }
+    /** Alias for Dentata.select */
+    s<K extends keyof T>(key: K) {
+        return this.select(key)
+    }
+
+    /** Listen for changes to the data at this cursor, including changes originating in parents or children */
+    onChange(handleChange: Listener<T>) {
+        this.listeners.push(handleChange)
+    }
+
+    /** Remove all onChange listeners on this cursor */
     clearListeners() {
         this.listeners.splice(0, this.listeners.length)
     }
 
     private setFromBelow<K extends keyof T>(
-        child: Cursor<any>,
+        child: Dentata<any>,
         key: K,
         newVal: T[K],
     ): void {
@@ -68,19 +91,11 @@ export class Cursor<T> {
         }
         this?.parent?.setFromBelow(this, this.fromKey!, this.data)
     }
-    // apply(makeNewData: (prev: Readonly<T>) => T) {}
-    onChange(handleChange: Listener<T>) {
-        this.listeners.push(handleChange)
-    }
-    select<K extends keyof T>(key: K) {
-        const c = new Cursor(this.data[key], this, key)
-        if (!this.children.has(key)) {
-            this.children.set(key, [])
-        }
-        this.children.get(key)?.push(c)
-        return c
-    }
 }
+
+/** Alias for Dentata */
+export const Dent = Dentata
+export type Dent<T> = Dentata<T>
 
 const deepEquals = memoize(deepEquals_, 50000)
 function deepEquals_(a: unknown, b: unknown): boolean {
