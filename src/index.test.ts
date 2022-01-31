@@ -51,14 +51,33 @@ describe("blah", () => {
         })
         let aChanged = false
         let cChanged = false
-        cur.select("a").onChange(() => (aChanged = true))
+        cur.select("a").onChange(() => {
+            console.log("a changed in test4")
+            aChanged = true
+        })
         cur.select("a")
             .select("b")
             .select("c")
-            .onChange(() => (cChanged = true))
+            .onChange(() => {
+                console.log("c changed in test4")
+                cChanged = true
+            })
         cur.select("a").select("b").set({ c: 5 })
         expect(aChanged).toEqual(true)
         expect(cChanged).toEqual(true)
+    })
+    it("cursors pointing in loop don't cause crash", () => {
+        const cur = new Cursor({
+            a: {
+                b: { c: 1 },
+            },
+        })
+        const a1 = cur.select("a")
+        const a2 = cur.select("a")
+        const b1 = a2.select("b")
+        const b2 = a1.select("b")
+        b1.set({ c: 2 })
+        b2.set({ c: 3 })
     })
 })
 

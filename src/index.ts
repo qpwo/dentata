@@ -15,7 +15,7 @@ export class Cursor<T> {
         return this.data as DeepReadonly<T>
     }
     /** Set data to `undefined` to remove all listeners and descendant cursors */
-    set(newVal: T) {
+    set(newVal: T, parentKnows = false) {
         const oldVal = this.data
         this.data = newVal
         if (deepEquals(oldVal, newVal)) return
@@ -26,7 +26,7 @@ export class Cursor<T> {
         for (const [key, val] of this.children.entries()) {
             const newHere = newVal?.[key]
             for (const c of val) {
-                c.set(newHere)
+                c.set(newHere, true)
             }
             if (newHere === undefined) {
                 this.children.delete(key)
@@ -35,7 +35,8 @@ export class Cursor<T> {
         if (newVal === undefined) {
             this.clearListeners()
         }
-        this?.parent?.setFromBelow(this.fromKey!, newVal)
+        if (!parentKnows)
+            this?.parent?.setFromBelow(this, this.fromKey!, newVal)
     }
 
     apply(update: (prev: DeepReadonly<T>) => T) {
@@ -47,7 +48,11 @@ export class Cursor<T> {
         this.listeners.splice(0, this.listeners.length)
     }
 
-    private setFromBelow<K extends keyof T>(key: K, newVal: T[K]): void {
+    private setFromBelow<K extends keyof T>(
+        child: Cursor<any>,
+        key: K,
+        newVal: T[K],
+    ): void {
         const oldVal = this.data
         // @ts-expect-error
         this.data = Array.isArray(this.data) ? [...this.data] : { ...this.data }
@@ -55,10 +60,13 @@ export class Cursor<T> {
         for (const li of this.listeners) {
             li(this.data as DeepReadonly<T>, oldVal as DeepReadonly<T>)
         }
+        for (const c of this.children.get(key) ?? []) {
+            if (c !== child) c.set(newVal, true)
+        }
         if (newVal === undefined) {
             this.children.delete(key)
         }
-        this?.parent?.setFromBelow(this.fromKey!, this.data)
+        this?.parent?.setFromBelow(this, this.fromKey!, this.data)
     }
     // apply(makeNewData: (prev: Readonly<T>) => T) {}
     onChange(handleChange: Listener<T>) {
