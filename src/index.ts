@@ -1,252 +1,87 @@
-/** A simple data tree with change listeners */
+type Listener<T> = (newVal: DeepReadonly<T>, oldVal: DeepReadonly<T>) => void
 
-/** Make a new data tree */
-export function makeDentata<T extends ValidData>(data: T): Cursor<T> {
-    return new Dentata(data).cursor
-}
+export class Cursor<T> {
+    private listeners: Listener<T>[] = []
+    private children: Map<keyof T, Cursor<any>[]> = new Map()
+    constructor(
+        private data: T,
+        private parent?: Cursor<any>,
+        private fromKey?: PropertyKey,
+    ) {
+        if (data === undefined)
+            throw Error("must instantiate with non-undefined data")
+    }
+    get(): DeepReadonly<T> {
+        return this.data as DeepReadonly<T>
+    }
+    /** Set data to `undefined` to remove all listeners and descendant cursors */
+    set(newVal: T) {
+        const oldVal = this.data
+        this.data = newVal
+        if (deepEquals(oldVal, newVal)) return
 
-/** Data cursor */
-export type Cursor<T extends ValidData = any> = CursorC<T>
-/** Alias for Cursor */
-export type Cur<T extends ValidData = any> = CursorC<T>
-
-export type ROCursor<T extends ValidData = any> = ROCursorC<T>
-/** Alias for read-only cursor */
-export type ROC = ROCursor
-
-type Id = string
-
-type Func = (...args: any[]) => any
-
-type ValidKey = string
-
-type Path = ValidKey[]
-type ValidData =
-    | bigint
-    | boolean
-    | null
-    | number
-    | string
-    | symbol
-    | Func
-    | SubTree
-    | ValidData[]
-
-type SubTree = { [key: ValidKey]: ValidData }
-type KeyOf<T> = T extends SubTree ? keyof T : never
-type ChangeListener<T> = (
-    pathToChangedValue: Path,
-    newVal: Readonly<T>,
-    oldVal: Readonly<T>,
-    unsubscribe: Unsubscribe,
-) => void
-type Unsubscribe = () => void
-
-type Obj = Record<ValidKey, any>
-
-type ChangeListeners<T> = Record<Id, ChangeListener<T>>
-type DeleteListeners = (() => void)[]
-
-const CURSORS = Symbol("CURSORS")
-
-// the cursor tree holds all non-destroyed cursors, whether or not they have listeners
-type CursorTree = { [key: ValidKey]: CursorTree } & { [CURSORS]?: Cursor[] }
-
-class Dentata<T extends ValidData = any> {
-    // private cursors: Cursors = new Map()
-    private cursorTree: CursorTree = {}
-    public cursor: Cursor<T>
-    public destroyed = false
-    constructor(private data: T) {
-        this.cursor = new CursorC<T>(this, [])
+        for (const li of this.listeners) {
+            li(newVal as DeepReadonly<T>, oldVal as DeepReadonly<T>)
+        }
+        for (const [key, val] of this.children.entries()) {
+            const newHere = newVal?.[key]
+            for (const c of val) {
+                c.set(newHere)
+            }
+            if (newHere === undefined) {
+                this.children.delete(key)
+            }
+        }
+        if (newVal === undefined) {
+            this.clearListeners()
+        }
+        this?.parent?.setFromBelow(this.fromKey!, newVal)
     }
 
-    // called by self or parent, but never by child
-    public __set(path: Path, value: unknown) {
-        const prev = getPath(this.data, path)
-        setPath(this.data, path, value)
-        this.handleChange(path, prev, value)
+    apply(update: (prev: DeepReadonly<T>) => T) {
+        const new_ = update(this.data as DeepReadonly<T>)
+        this.set(new_)
     }
 
-    public __get(path: Path): unknown {
-        return getPath(this.data, path)
+    clearListeners() {
+        this.listeners.splice(0, this.listeners.length)
     }
 
-    // you can have multiple cursors at the same path
-    public select<T extends ValidData>(path: Path) {
-        const c = new CursorC<T>(this, path)
-
-        addCursor(this.cursorTree, path, c)
+    private setFromBelow<K extends keyof T>(key: K, newVal: T[K]): void {
+        const oldVal = this.data
+        // @ts-expect-error
+        this.data = Array.isArray(this.data) ? [...this.data] : { ...this.data }
+        this.data[key] = newVal
+        for (const li of this.listeners) {
+            li(this.data as DeepReadonly<T>, oldVal as DeepReadonly<T>)
+        }
+        if (newVal === undefined) {
+            this.children.delete(key)
+        }
+        this?.parent?.setFromBelow(this.fromKey!, this.data)
+    }
+    // apply(makeNewData: (prev: Readonly<T>) => T) {}
+    onChange(handleChange: Listener<T>) {
+        this.listeners.push(handleChange)
+    }
+    select<K extends keyof T>(key: K) {
+        const c = new Cursor(this.data[key], this, key)
+        if (!this.children.has(key)) {
+            this.children.set(key, [])
+        }
+        this.children.get(key)?.push(c)
         return c
     }
-
-    /** Release all cursors and event listeners */
-    public destroy() {
-        allCursors(this.cursorTree).map(c => c.clearListeners())
-        clearObj(this)
-        this.destroyed = true
-    }
-    // prev and new are the value at the path,  not at the root
-    private handleChange(path: Path, prev: any, new_: any) {
-        let subtree = this.cursorTree
-
-        // don't compute until we find a changeListener that needs it:
-        let isEqual: null | boolean = null
-
-        // cursors above change:
-        let i = 0
-        for (; i < path.length; i++) {
-            for (const c of subtree[CURSORS] ?? []) {
-                if (c.hasChangeListeners()) {
-                    // ok compute it now if we haven't:
-                    isEqual = isEqual ?? deepEquals(prev, new_)
-                    if (!isEqual) c._notifyChange(path.slice(i), prev, new_)
-                }
-            }
-
-            if (!hasKey(subtree, path[i])) break
-            subtree = subtree[path[i]]
-        }
-        // so all the cursors above the path have been notified if they exist and a change was actually made.
-        if (i < path.length) return // the loop broke early so there aren't any cursors below the path
-        if (!hasSomeListener(subtree)) return
-        notifyAllListeners(subtree, prev, new_)
-        pruneTree(this.cursorTree, subtree, new_, path)
-    }
 }
 
-/** Assumes that nothing above changedPath was deleted anything inside of it might have changed */
-function pruneTree(
-    cursorTree: CursorTree,
-    subTree: CursorTree,
-    newVal: any,
-    pathToHere: Path,
-) {
-    // I wonder if this routine is slow...
-    // so we need to remove all the cursors that point to `undefined`.
-    // then we also want to climb up for each cursor we delete and prune the tree above it.
-    // I suppose I'll do this depth first so we dont repeat the climbing too much.
-    if (subTree === undefined) throw Error("unreachable")
-    for (const key of Object.keys(subTree))
-        pruneTree(cursorTree, subTree?.[key], newVal?.[key], [
-            ...pathToHere,
-            key,
-        ])
-    if (newVal !== undefined)
-        // the data at the cursor here was not deleted
-        return
-
-    // clear all the listeners:
-    while (true) {
-        const c = subTree?.[CURSORS]?.pop()
-        if (c === undefined) break
-        c.clearListeners()
-    }
-    // the children should have already deleted themselves so we just have to go up:
-    let toCheck = [cursorTree]
-    for (const key of pathToHere) {
-        toCheck.push(toCheck[toCheck.length - 1][key])
-    }
-    for (let i = toCheck.length - 1; i > 0; i--) {
-        const cursorsHere = toCheck[i]?.[CURSORS]
-        const noCursors = cursorsHere === undefined || cursorsHere?.length === 0
-        const noChildren = numKeys(toCheck[i]) === 0
-        if (noCursors && noChildren) {
-            delete toCheck[i - 1][pathToHere[i]]
-        }
-    }
-}
-
-function addCursor(tree: CursorTree, path: ValidKey[], cursor: Cursor) {
-    let subtree = tree
-    for (const p of path) {
-        if (!hasKey(subtree, p)) subtree[p] = {}
-        subtree = subtree[p]
-    }
-    if (!(CURSORS in subtree)) subtree[CURSORS] = []
-    subtree[CURSORS]!.push(cursor)
-}
-
-function hasSomeListener(tree: CursorTree): boolean {
-    return (
-        tree[CURSORS]?.some(
-            c => c.hasChangeListeners() || c.hasDeleteListeners(),
-        ) || Object.values(tree).some(subtree => hasSomeListener(subtree))
-    )
-}
-
-function allCursors(tree: CursorTree, result: Cursor[] = []): Cursor[] {
-    for (const c of tree[CURSORS] ?? []) {
-        result.push(c)
-    }
-    for (const subTree of Object.values(tree)) {
-        allCursors(subTree, result)
-    }
-    return result
-}
-
-function notifyAllListeners(
-    subtree: CursorTree,
-    prev: any,
-    new_: any | undefined,
-) {
-    let isEq: null | boolean = null
-    for (const c of subtree?.[CURSORS] ?? []) {
-        if (c.hasDeleteListeners() && new_ === undefined) {
-            c._notifyDelete()
-        } else if (c.hasChangeListeners()) {
-            isEq = isEq ?? deepEquals(prev, new_)
-            if (!isEq) c._notifyChange([], prev, new_)
-        }
-    }
-    if (isEq !== false)
-        for (const key of Object.keys(subtree)) {
-            notifyAllListeners(subtree[key], prev?.[key], new_?.[key])
-        }
-}
-
-function getPath<T>(o: any, path: ValidKey[]): T {
-    let x = o
-    for (const p of path) {
-        if (!hasKey(x, p)) throw Error(`key ${p} not found in ${o}`)
-        x = x[p]
-    }
-    return x as T
-}
-
-function setPath(o: any, path: ValidKey[], value: any) {
-    let x = o
-    for (let i = 0; i < path.length - 1; i++) {
-        const p = path[i]
-        if (!hasKey(x, p)) throw Error(`key ${p} not found in ${o}`)
-        x = x[p]
-    }
-    x[path[path.length - 1]] = value
-}
-
-function hasKey(o: any, key: ValidKey): boolean {
-    return Object.prototype.hasOwnProperty.call(o, key)
-}
-
-function numKeys(o: any): number {
-    return Object.keys(o).length
-}
-
-function clearObj(o: Obj) {
-    for (const key of Object.keys(o)) {
-        delete o[key]
-    }
-}
-
-const deepEquals = memoize(deepEquals_, 60000)
-/** Works for json-like objects */
-function deepEquals_(a: any, b: any): boolean {
-    const isEq = a === b || (Number.isNaN(a) && Number.isNaN(b))
-    if (isEq) return true
+const deepEquals = memoize(deepEquals_, 50000)
+function deepEquals_(a: unknown, b: unknown): boolean {
+    if (a === b || (Number.isNaN(a) && Number.isNaN(b))) return true
 
     // prettier-ignore
     if (typeof a !== typeof b || // different types
-        typeof a !== "object" || // nonequal primitives
+        typeof a !== "object" ||
+        typeof b !== "object" || // nonequal primitives
         (a === null || b === null) // one is null but not other
     )
         return false
@@ -267,10 +102,11 @@ function deepEquals_(a: any, b: any): boolean {
     ak.sort()
     bk.sort()
     if (!ak.every((aki, i) => aki === bk[i])) return false
+    // @ts-expect-error
     return ak.every(k => deepEquals(a[k], b[k]))
 }
 
-function memoize<Args extends any[], Result extends any>(
+function memoize<Args extends unknown[], Result extends unknown>(
     f: (...args: Args) => Result,
     maxSize = -1,
 ): (...args: Args) => Result {
@@ -287,136 +123,16 @@ function memoize<Args extends any[], Result extends any>(
     return g
 }
 
-class CursorC<T extends ValidData = any> {
-    private changeListeners: ChangeListeners<T> = {}
-    private deleteListeners: DeleteListeners = []
-    _notifyChange(path: Path, prev: T, new_: T) {
-        for (const [id, cl] of Object.entries(this.changeListeners)) {
-            cl(path, new_, prev, () => delete this.changeListeners[id])
-        }
-    }
+type DeepReadonly<T> = T extends (infer R)[]
+    ? DeepReadonlyArray<R>
+    : T extends Function
+    ? T
+    : T extends object
+    ? DeepReadonlyObject<T>
+    : T
 
-    _notifyDelete() {
-        // the root Dentata handles deleting old cursors
-        for (const dl of this.deleteListeners) dl()
-    }
+interface DeepReadonlyArray<T> extends ReadonlyArray<DeepReadonly<T>> {}
 
-    constructor(private root: Dentata, private path: Path) {}
-    get(): Readonly<T>
-    get<K extends KeyOf<T>>(key: K): Readonly<T[K]>
-    get<K extends KeyOf<T>>(key?: K) {
-        if (key === undefined) return this.root.__get(this.path) as Readonly<T>
-        if (typeof key !== "string") throw Error(`key ${key} is not a string`)
-        return this.root.__get([...this.path, key]) as Readonly<T[K]>
-    }
-
-    public hasChangeListeners(): boolean {
-        return numKeys(this.changeListeners) > 0
-    }
-    public hasDeleteListeners(): boolean {
-        return this.deleteListeners.length > 0
-    }
-
-    set(newValue: T): void {
-        this.root.__set(this.path, newValue)
-    }
-
-    update(makeNew: (old: Readonly<T>) => T) {
-        if (typeof makeNew !== "function")
-            throw Error("update(makeNew) called without function argument")
-        const prev = this.root.__get(this.path) as T
-        const new_ = makeNew(prev)
-        this.root.__set(this.path, new_)
-    }
-
-    // @ts-expect-error
-    select<K extends KeyOf<T>>(key: K): Cursor<T[K]> {
-        if (typeof key !== "string")
-            throw Error(`value ${key} is not a valid object key`)
-        if (!isSubTree(this.get()))
-            throw Error(
-                `tried to select(${key}) when cursor data was not object/record`,
-            )
-
-        // @ts-expect-error
-        return this.root.select<T[K]>([...this.path, key])
-    }
-    // selectDeep() // TODO
-    /** Alias for Cursor.select() */
-    // @ts-expect-error
-    s<K extends T extends SubTree ? keyof T : never>(key: K): Cursor<T[K]> {
-        return this.select(key)
-    }
-
-    onChange(handleChange: ChangeListener<T>): Unsubscribe {
-        const id = makeId()
-        this.changeListeners[id] = handleChange
-        return () => {
-            delete this.changeListeners[id]
-        }
-    }
-
-    onDelete(handleDelete: () => void) {
-        this.deleteListeners.push(handleDelete)
-    }
-
-    clearListeners(): void {
-        clearObj(this.changeListeners)
-        clearObj(this.deleteListeners)
-    }
-
-    getReadOnly(): ROCursor<T> {
-        return new ROCursorC(this)
-    }
-
-    /* private notifyChangeListeners(newData: T, oldData: T) {
-        for (const [id, listener] of Object.entries(this.changeListeners)) {
-            listener([], newData, oldData, () => delete this.changeListeners[id])
-        }
-    } */
-}
-
-/** Read-only cursor */
-class ROCursorC<T extends ValidData = any> {
-    constructor(private cursor: Cursor) {}
-    get(): Readonly<T>
-    get<K extends KeyOf<T>>(key: K): Readonly<T[K]>
-    get<K extends KeyOf<T>>(key?: K) {
-        // @ts-expect-error
-        return this.cursor.get(key)
-    }
-
-    public hasChangeListeners(): boolean {
-        return this.cursor.hasChangeListeners()
-    }
-
-    // @ts-expect-error
-    select<K extends KeyOf<T>>(key: K): ROCursor<T[K]> {
-        // @ts-expect-error
-        return new ROCursorC(this.cursor.select(key))
-    }
-    // @ts-expect-error
-    s<K extends T extends SubTree ? keyof T : never>(key: K): ROCursor<T[K]> {
-        return this.select(key)
-    }
-
-    onChange(handleChange: ChangeListener<T>): Unsubscribe {
-        return this.cursor.onChange(handleChange)
-    }
-
-    onDelete(handleDelete: () => void) {
-        return this.cursor.onDelete(handleDelete)
-    }
-
-    clearListeners(): void {
-        this.cursor.clearListeners()
-    }
-}
-
-function isSubTree(x: unknown): x is SubTree {
-    return typeof x === "object" && x !== null && !Array.isArray(x)
-}
-
-function makeId(): string {
-    return Math.random().toString().slice(2)
+type DeepReadonlyObject<T> = {
+    readonly [P in keyof T]: DeepReadonly<T[P]>
 }
