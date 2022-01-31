@@ -1,3 +1,19 @@
+/** A simple data tree with change listeners */
+
+/** Make a new data tree */
+export function makeDentata<T extends ValidData>(data: T): Cursor<T> {
+    return new Dentata(data).cursor
+}
+
+/** Data cursor */
+export type Cursor<T extends ValidData = any> = CursorC<T>
+/** Alias for Cursor */
+export type Cur<T extends ValidData = any> = CursorC<T>
+
+export type ROCursor<T extends ValidData = any> = ROCursorC<T>
+/** Alias for read-only cursor */
+export type ROC = ROCursor
+
 type Id = string
 
 type Func = (...args: any[]) => any
@@ -36,17 +52,13 @@ const CURSORS = Symbol("CURSORS")
 // the cursor tree holds all non-destroyed cursors, whether or not they have listeners
 type CursorTree = { [key: ValidKey]: CursorTree } & { [CURSORS]?: Cursor[] }
 
-export function makeDentata<T extends ValidData>(data: T): Cursor<T> {
-    return new Dentata(data).cursor
-}
-
 class Dentata<T extends ValidData = any> {
     // private cursors: Cursors = new Map()
     private cursorTree: CursorTree = {}
     public cursor: Cursor<T>
     public destroyed = false
     constructor(private data: T) {
-        this.cursor = new Cursor<T>(this, [])
+        this.cursor = new CursorC<T>(this, [])
     }
 
     // called by self or parent, but never by child
@@ -62,7 +74,7 @@ class Dentata<T extends ValidData = any> {
 
     // you can have multiple cursors at the same path
     public select<T extends ValidData>(path: Path) {
-        const c = new Cursor<T>(this, path)
+        const c = new CursorC<T>(this, path)
 
         addCursor(this.cursorTree, path, c)
         return c
@@ -100,6 +112,48 @@ class Dentata<T extends ValidData = any> {
         if (!hasSomeListener(subtree)) return
         notifyAllListeners(subtree, prev, new_)
         pruneTree(this.cursorTree, subtree, new_, path)
+    }
+}
+
+/** Assumes that nothing above changedPath was deleted anything inside of it might have changed */
+function pruneTree(
+    cursorTree: CursorTree,
+    subTree: CursorTree,
+    newVal: any,
+    pathToHere: Path,
+) {
+    // I wonder if this routine is slow...
+    // so we need to remove all the cursors that point to `undefined`.
+    // then we also want to climb up for each cursor we delete and prune the tree above it.
+    // I suppose I'll do this depth first so we dont repeat the climbing too much.
+    if (subTree === undefined) throw Error("unreachable")
+    for (const key of Object.keys(subTree))
+        pruneTree(cursorTree, subTree?.[key], newVal?.[key], [
+            ...pathToHere,
+            key,
+        ])
+    if (newVal !== undefined)
+        // the data at the cursor here was not deleted
+        return
+
+    // clear all the listeners:
+    while (true) {
+        const c = subTree?.[CURSORS]?.pop()
+        if (c === undefined) break
+        c.clearListeners()
+    }
+    // the children should have already deleted themselves so we just have to go up:
+    let toCheck = [cursorTree]
+    for (const key of pathToHere) {
+        toCheck.push(toCheck[toCheck.length - 1][key])
+    }
+    for (let i = toCheck.length - 1; i > 0; i--) {
+        const cursorsHere = toCheck[i]?.[CURSORS]
+        const noCursors = cursorsHere === undefined || cursorsHere?.length === 0
+        const noChildren = numKeys(toCheck[i]) === 0
+        if (noCursors && noChildren) {
+            delete toCheck[i - 1][pathToHere[i]]
+        }
     }
 }
 
@@ -151,7 +205,89 @@ function notifyAllListeners(
         }
 }
 
-class Cursor<T extends ValidData = any> {
+function getPath<T>(o: any, path: ValidKey[]): T {
+    let x = o
+    for (const p of path) {
+        if (!hasKey(x, p)) throw Error(`key ${p} not found in ${o}`)
+        x = x[p]
+    }
+    return x as T
+}
+
+function setPath(o: any, path: ValidKey[], value: any) {
+    let x = o
+    for (let i = 0; i < path.length - 1; i++) {
+        const p = path[i]
+        if (!hasKey(x, p)) throw Error(`key ${p} not found in ${o}`)
+        x = x[p]
+    }
+    x[path[path.length - 1]] = value
+}
+
+function hasKey(o: any, key: ValidKey): boolean {
+    return Object.prototype.hasOwnProperty.call(o, key)
+}
+
+function numKeys(o: any): number {
+    return Object.keys(o).length
+}
+
+function clearObj(o: Obj) {
+    for (const key of Object.keys(o)) {
+        delete o[key]
+    }
+}
+
+const deepEquals = memoize(deepEquals_, 60000)
+/** Works for json-like objects */
+function deepEquals_(a: any, b: any): boolean {
+    const isEq = a === b || (Number.isNaN(a) && Number.isNaN(b))
+    if (isEq) return true
+
+    // prettier-ignore
+    if (typeof a !== typeof b || // different types
+        typeof a !== "object" || // nonequal primitives
+        (a === null || b === null) // one is null but not other
+    )
+        return false
+
+    // So a and b are both either arrays or objects
+
+    const aArr = Array.isArray(a)
+    const bArr = Array.isArray(b)
+    if (aArr !== bArr) return false
+    if (aArr && bArr) {
+        if (a.length !== b.length) return false
+        return a.every((ai, i) => deepEquals(ai, b[i]))
+    }
+    // both regular objects
+    const ak = Object.keys(a)
+    const bk = Object.keys(b)
+    if (ak.length !== bk.length) return false
+    ak.sort()
+    bk.sort()
+    if (!ak.every((aki, i) => aki === bk[i])) return false
+    return ak.every(k => deepEquals(a[k], b[k]))
+}
+
+function memoize<Args extends any[], Result extends any>(
+    f: (...args: Args) => Result,
+    maxSize = -1,
+): (...args: Args) => Result {
+    const map = new Map<Args, Result>()
+    function g(...args: Args): Result {
+        if (map.has(args)) return map.get(args)!
+
+        if (maxSize > 0 && map.size >= maxSize) map.clear()
+
+        const result = f(...args)
+        map.set(args, result)
+        return result
+    }
+    return g
+}
+
+class CursorC<T extends ValidData = any> {
     private changeListeners: ChangeListeners<T> = {}
     private deleteListeners: DeleteListeners = []
     _notifyChange(path: Path, prev: T, new_: T) {
@@ -230,7 +366,7 @@ class Cursor<T extends ValidData = any> {
     }
 
     getReadOnly(): ROCursor<T> {
-        return new ROCursor(this)
+        return new ROCursorC(this)
     }
 
     /* private notifyChangeListeners(newData: T, oldData: T) {
@@ -239,15 +375,9 @@ class Cursor<T extends ValidData = any> {
         }
     } */
 }
-export type CursorT<T extends ValidData = any> = Cursor<T>
-
-const n: number = 4
-const x: CursorT<number> = makeDentata(n)
-/** Alias for Cursor */
-export const Cur = Cursor
 
 /** Read-only cursor */
-export class ROCursor<T extends ValidData = any> {
+class ROCursorC<T extends ValidData = any> {
     constructor(private cursor: Cursor) {}
     get(): Readonly<T>
     get<K extends KeyOf<T>>(key: K): Readonly<T[K]>
@@ -263,7 +393,7 @@ export class ROCursor<T extends ValidData = any> {
     // @ts-expect-error
     select<K extends KeyOf<T>>(key: K): ROCursor<T[K]> {
         // @ts-expect-error
-        return new ROCursor(this.cursor.select(key))
+        return new ROCursorC(this.cursor.select(key))
     }
     // @ts-expect-error
     s<K extends T extends SubTree ? keyof T : never>(key: K): ROCursor<T[K]> {
@@ -283,141 +413,10 @@ export class ROCursor<T extends ValidData = any> {
     }
 }
 
-/** Alias for read-only cursor */
-export type ROC = ROCursor
-
 function isSubTree(x: unknown): x is SubTree {
     return typeof x === "object" && x !== null && !Array.isArray(x)
 }
 
 function makeId(): string {
     return Math.random().toString().slice(2)
-}
-
-function hasKey(o: any, key: ValidKey): boolean {
-    return Object.prototype.hasOwnProperty.call(o, key)
-}
-
-function numKeys(o: any): number {
-    return Object.keys(o).length
-}
-
-function clearObj(o: Obj) {
-    for (const key of Object.keys(o)) {
-        delete o[key]
-    }
-}
-
-// function getKeys<T extends Obj>(o: Obj): (keyof T)[] {
-//     return Object.keys(o)
-// }
-
-const deepEquals = memoize(deepEquals_, 60000)
-/** Works for json-like objects */
-function deepEquals_(a: any, b: any): boolean {
-    const isEq = a === b || (Number.isNaN(a) && Number.isNaN(b))
-    if (isEq) return true
-
-    // prettier-ignore
-    if (typeof a !== typeof b || // different types
-        typeof a !== "object" || // nonequal primitives
-        (a === null || b === null) // one is null but not other
-    )
-        return false
-
-    // So a and b are both either arrays or objects
-
-    const aArr = Array.isArray(a)
-    const bArr = Array.isArray(b)
-    if (aArr !== bArr) return false
-    if (aArr && bArr) {
-        if (a.length !== b.length) return false
-        return a.every((ai, i) => deepEquals(ai, b[i]))
-    }
-    // both regular objects
-    const ak = Object.keys(a)
-    const bk = Object.keys(b)
-    if (ak.length !== bk.length) return false
-    ak.sort()
-    bk.sort()
-    if (!ak.every((aki, i) => aki === bk[i])) return false
-    return ak.every(k => deepEquals(a[k], b[k]))
-}
-
-function memoize<Args extends any[], Result extends any>(
-    f: (...args: Args) => Result,
-    maxSize = -1,
-): (...args: Args) => Result {
-    const map = new Map<Args, Result>()
-    function g(...args: Args): Result {
-        if (map.has(args)) return map.get(args)!
-
-        if (maxSize > 0 && map.size >= maxSize) map.clear()
-
-        const result = f(...args)
-        map.set(args, result)
-        return result
-    }
-    return g
-}
-
-function getPath<T>(o: any, path: ValidKey[]): T {
-    let x = o
-    for (const p of path) {
-        if (!hasKey(x, p)) throw Error(`key ${p} not found in ${o}`)
-        x = x[p]
-    }
-    return x as T
-}
-
-function setPath(o: any, path: ValidKey[], value: any) {
-    let x = o
-    for (let i = 0; i < path.length - 1; i++) {
-        const p = path[i]
-        if (!hasKey(x, p)) throw Error(`key ${p} not found in ${o}`)
-        x = x[p]
-    }
-    x[path[path.length - 1]] = value
-}
-
-/** Assumes that nothing above changedPath was deleted anything inside of it might have changed */
-function pruneTree(
-    cursorTree: CursorTree,
-    subTree: CursorTree,
-    newVal: any,
-    pathToHere: Path,
-) {
-    // I wonder if this routine is slow...
-    // so we need to remove all the cursors that point to `undefined`.
-    // then we also want to climb up for each cursor we delete and prune the tree above it.
-    // I suppose I'll do this depth first so we dont repeat the climbing too much.
-    if (subTree === undefined) throw Error("unreachable")
-    for (const key of Object.keys(subTree))
-        pruneTree(cursorTree, subTree?.[key], newVal?.[key], [
-            ...pathToHere,
-            key,
-        ])
-    if (newVal !== undefined)
-        // the data at the cursor here was not deleted
-        return
-
-    // clear all the listeners:
-    while (true) {
-        const c = subTree?.[CURSORS]?.pop()
-        if (c === undefined) break
-        c.clearListeners()
-    }
-    // the children should have already deleted themselves so we just have to go up:
-    let toCheck = [cursorTree]
-    for (const key of pathToHere) {
-        toCheck.push(toCheck[toCheck.length - 1][key])
-    }
-    for (let i = toCheck.length - 1; i > 0; i--) {
-        const cursorsHere = toCheck[i]?.[CURSORS]
-        const noCursors = cursorsHere === undefined || cursorsHere?.length === 0
-        const noChildren = numKeys(toCheck[i]) === 0
-        if (noCursors && noChildren) {
-            delete toCheck[i - 1][pathToHere[i]]
-        }
-    }
 }
