@@ -1,4 +1,7 @@
-type Listener<T> = (newVal: DeepReadonly<T>, oldVal: DeepReadonly<T>) => void
+export type Listener<T> = (
+    newVal: DeepReadonly<T>,
+    oldVal: DeepReadonly<T>,
+) => void
 
 /** An extremely simple data tree */
 export class Dentata<T> {
@@ -96,6 +99,36 @@ export class Dentata<T> {
 /** Alias for Dentata */
 export const Dent = Dentata
 export type Dent<T> = Dentata<T>
+
+export interface DentataLike<T> {
+    get: () => DeepReadonly<T>
+    onChange: (l: Listener<T>) => void
+}
+
+/** Create a synthetic data cursor for computed values on another data cursor */
+export function syntheticCursor<InputData, OutputData>(
+    fromCursor: DentataLike<InputData>,
+    compute: (t: DeepReadonly<InputData>) => OutputData,
+    { equality = "===" as "===" | "deep" },
+): DentataLike<OutputData> {
+    type ImOut = DeepReadonly<OutputData>
+    const listeners: Listener<OutputData>[] = []
+    fromCursor.onChange((oldX, newX) => {
+        const [oldY, newY] = [compute(oldX), compute(newX)]
+        if (
+            (equality === "===" && oldY !== newY) ||
+            (equality === "deep" && !deepEquals(oldY, newY))
+        ) {
+            for (const l of listeners) {
+                l(newY as ImOut, oldY as ImOut)
+            }
+        }
+    })
+    return {
+        get: () => compute(fromCursor.get()) as ImOut,
+        onChange: l => listeners.push(l),
+    }
+}
 
 const deepEquals = memoize(deepEquals_, 50000)
 function deepEquals_(a: unknown, b: unknown): boolean {
