@@ -1,6 +1,6 @@
 # dentata
 
-Simple, lean, and fully-typed data tree with change listeners for node and the browser.
+Simple, lean, and fully-typed data tree with change listeners for node and the browser, javscript or typescript.
 
 A minimalist/bare-bones alternative to baobab. (Not to mention redux, etc.)
 
@@ -8,7 +8,7 @@ Critically, dentata requires you to select on arrays by value, instead of by ind
 
 Developed with yarn version v1.22.17
 
-Simple browser example:
+Simple browser typescript example:
 
 ```ts
 import Dentata from "dentata"
@@ -48,8 +48,5 @@ const tree = new Dentata({
 const scoreDiv = document.getElementById("scoreBox")
 const healthDiv = document.getElementById("health")
 
-tree.score.$onUpdate(newScore => (scoreDiv.innerText = newScore))
-tree.characters.allies.321.health.$onUpdate(newHealth => healthDiv.progress = newHealth)
-
-tree.$onUpdate((newTree, diff) => console.log('get the whole tree here'))
+tree.s("score").onChange(newScore => (scoreDiv.innerText = newScore))
 ```
