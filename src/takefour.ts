@@ -1,23 +1,30 @@
-type Listener<T> = (prev: Readonly<T>, new_: Readonly<T>) => void
+type Listener<T> = (
+    prev: DeepReadonly<T>,
+    new_: DeepReadonly<T> | undefined,
+) => void
 
 export class Cursor<T> {
     private listeners: Listener<T>[] = []
-    private children: Map<PropertyKey, Cursor<any>[]> = new Map()
+    private children: Map<keyof T, Cursor<any>[]> = new Map()
     constructor(
         private data: T,
         private parent?: Cursor<any>,
         private fromKey?: PropertyKey,
-    ) {}
-    get(): Readonly<T> {
-        return this.data
+    ) {
+        if (data === undefined)
+            throw Error("must instantiate with non-undefined data")
     }
+    get(): DeepReadonly<T> {
+        return this.data as DeepReadonly<T>
+    }
+    /** Set data to `undefined` to remove all listeners and descendant cursors */
     set(newVal: T) {
         const oldVal = this.data
         this.data = newVal
         if (deepEquals(oldVal, newVal)) return
 
         for (const li of this.listeners) {
-            li(oldVal, newVal)
+            li(oldVal as DeepReadonly<T>, newVal as DeepReadonly<T>)
         }
         for (const [key, val] of this.children.entries()) {
             const newHere = newVal?.[key]
@@ -31,7 +38,12 @@ export class Cursor<T> {
         if (newVal === undefined) {
             this.clearListeners()
         }
-        this?.parent?.setFromBelow(this?.fromKey, newVal)
+        this?.parent?.setFromBelow(this.fromKey!, newVal)
+    }
+
+    apply(update: (prev: DeepReadonly<T>) => T) {
+        const new_ = update(this.data as DeepReadonly<T>)
+        this.set(new_)
     }
 
     clearListeners() {
@@ -40,14 +52,16 @@ export class Cursor<T> {
 
     private setFromBelow<K extends keyof T>(key: K, newVal: T[K]): void {
         const oldVal = this.data
-        this.data = { ...this.data, key: newVal }
+        // @ts-expect-error
+        this.data = Array.isArray(this.data) ? [...this.data] : { ...this.data }
+        this.data[key] = newVal
         for (const li of this.listeners) {
-            li(oldVal, this.data)
+            li(oldVal as DeepReadonly<T>, this.data as DeepReadonly<T>)
         }
         if (newVal === undefined) {
             this.children.delete(key)
         }
-        this?.parent?.setFromBelow(this?.fromKey, this.data)
+        this?.parent?.setFromBelow(this.fromKey!, this.data)
     }
     // apply(makeNewData: (prev: Readonly<T>) => T) {}
     onChange(handleChange: Listener<T>) {
@@ -64,12 +78,13 @@ export class Cursor<T> {
 }
 
 const deepEquals = memoize(deepEquals_, 50000)
-function deepEquals_(a: any, b: any): boolean {
+function deepEquals_(a: unknown, b: unknown): boolean {
     if (a === b || (Number.isNaN(a) && Number.isNaN(b))) return true
 
     // prettier-ignore
     if (typeof a !== typeof b || // different types
-        typeof a !== "object" || // nonequal primitives
+        typeof a !== "object" ||
+        typeof b !== "object" || // nonequal primitives
         (a === null || b === null) // one is null but not other
     )
         return false
@@ -90,10 +105,11 @@ function deepEquals_(a: any, b: any): boolean {
     ak.sort()
     bk.sort()
     if (!ak.every((aki, i) => aki === bk[i])) return false
+    // @ts-expect-error
     return ak.every(k => deepEquals(a[k], b[k]))
 }
 
-function memoize<Args extends any[], Result extends any>(
+function memoize<Args extends unknown[], Result extends unknown>(
     f: (...args: Args) => Result,
     maxSize = -1,
 ): (...args: Args) => Result {
@@ -108,4 +124,18 @@ function memoize<Args extends any[], Result extends any>(
         return result
     }
     return g
+}
+
+type DeepReadonly<T> = T extends (infer R)[]
+    ? DeepReadonlyArray<R>
+    : T extends Function
+    ? T
+    : T extends object
+    ? DeepReadonlyObject<T>
+    : T
+
+interface DeepReadonlyArray<T> extends ReadonlyArray<DeepReadonly<T>> {}
+
+type DeepReadonlyObject<T> = {
+    readonly [P in keyof T]: DeepReadonly<T[P]>
 }
