@@ -50,3 +50,21 @@ const healthDiv = document.getElementById("health")
 
 tree.s("score").onChange(newScore => (scoreDiv.innerText = newScore))
 ```
+
+## Compound Cursors
+
+```ts
+function areaCursor(rectangleCursor) {
+    const listeners = []
+    const areaOf = { width, height } => width * height
+    rectangleCursor.onChange((prev, new_) => {
+        if (areaOf(prev) !== areaOf(new_))
+            for (const l of listeners)
+                l(areaOf(new_))
+    }
+    return {
+        get: () => areaOf(rectangleCursor)
+        onChange: callback => listeners.push(callback),
+    }
+}
+```
