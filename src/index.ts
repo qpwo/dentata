@@ -144,10 +144,8 @@ function deepEquals_(a: unknown, b: unknown): boolean {
 
     // So a and b are both either arrays or objects
 
-    const aArr = Array.isArray(a)
-    const bArr = Array.isArray(b)
-    if (aArr !== bArr) return false
-    if (aArr && bArr) {
+    if (Array.isArray(a) !== Array.isArray(b)) return false
+    if (Array.isArray(a) && Array.isArray(b)) {
         if (a.length !== b.length) return false
         return a.every((ai, i) => deepEquals(ai, b[i]))
     }
