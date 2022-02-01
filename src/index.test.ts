@@ -1,4 +1,4 @@
-import { Dent, Dentata } from "./"
+import { Dent, Dentata, syntheticCursor } from "./"
 
 describe("blah", () => {
     it("basic", () => {
@@ -102,6 +102,18 @@ describe("blah", () => {
         c.select("a").set(2)
         expect(o).toEqual({ a: 1 })
         expect(c.get()).toEqual({ a: 2 })
+    })
+    it("has working synthetic cursors", () => {
+        const rect = new Dentata({ w: 5, h: 10 })
+        const area = syntheticCursor(rect, ({ w, h }) => w * h)
+        expect(area.get()).toEqual(50)
+        let changed = false
+        area.onChange(() => {
+            changed = true
+        })
+        expect(changed).toEqual(false)
+        rect.s("w").set(20)
+        expect(changed).toEqual(true)
     })
 })
 
