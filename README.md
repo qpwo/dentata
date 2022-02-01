@@ -4,6 +4,8 @@ Simple, lean, and fully-typed data tree library with change listeners for node a
 
 Zero dependencies and 2.7kb gzipped.
 
+It is fully synchronous so no surprises waiting for your changes to propagate, or passing callbacks to set, which avoids many errors in both UIs and APIs.
+
 You make a tree/cursor with `new Dentata(data)` and just have `get`, `set`, `apply(update: old => new)`, and `onChange(handler)`. This is flexible enough to manage state server-side, with simple DOM-based apps, in react, or in libraries. A change event will only fire if the new data is actually different, and will always fire if anything at or below the cursor is different.
 
 Thanks to a cached deep equality check, all of this is very fast. The diff is only taken on nodes that have children or listeners, so it is often avoided.
