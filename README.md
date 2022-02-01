@@ -1,6 +1,8 @@
 # dentata
 
-Simple, lean, and fully-typed data tree with change listeners for node and the browser, javscript or typescript. A state manager that keeps things simple, fast, and understandable. A minimalist/bare-bones alternative to baobab. (Not to mention redux, etc.)
+Simple, lean, and fully-typed data tree library with change listeners for node and the browser, javscript or typescript. A state manager that keeps things simple, fast, and understandable. A minimalist/bare-bones alternative to baobab. (Not to mention redux, etc.)
+
+Zero dependencies and 2.7kb gzipped.
 
 You make a tree/cursor with `new Dentata(data)` and just have `get`, `set`, `apply(update: old => new)`, and `onChange(handler)`. This is flexible enough to manage state server-side, with simple DOM-based apps, in react, or in libraries. A change event will only fire if the new data is actually different, and will always fire if anything at or below the cursor is different.
 
@@ -15,7 +17,12 @@ yarn add dentata
 
 ## Auto-complete and compile-time errors
 
-TODO: insert pictures here
+![autocomplete-example](https://user-images.githubusercontent.com/10591373/152046346-fe840b8a-7916-4873-92ad-8b4459fb381c.png)
+
+![deep-autocomplete-example](https://user-images.githubusercontent.com/10591373/152046523-861a5860-1a45-4e3b-a412-257e56ea370d.png)
+
+
+![bad-keys-example](https://user-images.githubusercontent.com/10591373/152046307-0e0f8884-f2cb-4434-82d9-1cf151e23fa8.png)
 
 ## Complete basic example
 
