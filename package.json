@@ -1,6 +1,6 @@
 {
     "name": "dentata",
-    "version": "0.0.1",
+    "version": "1.0.2",
     "private": false,
     "description": "Simple, lean, and fully-typed data tree with change listeners for node and the browser. Works well with react or anything.",
     "repository": {
