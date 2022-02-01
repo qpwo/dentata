@@ -1,9 +1,11 @@
+/** Dentata is an extremely simple and fast state manager / data tree, similar to Baobab */
+
 export type Listener<T> = (
     newVal: DeepReadonly<T>,
     oldVal: DeepReadonly<T>,
 ) => void
 
-/** An extremely simple data tree */
+/** An extremely simple and fast state manager / data tree*/
 export class Dentata<T> {
     private listeners: Listener<T>[] = []
     private children: Map<keyof T, Dentata<any>[]> = new Map()
@@ -50,7 +52,7 @@ export class Dentata<T> {
         this.set(new_)
     }
 
-    /** Get a cursor deeper into the tree. It will be notified of parent changes and will tell parent if it changes (if there are listeners). */
+    /** Get a cursor deeper into the tree. It will be notified of parent changes and will tell parent if it changes (if either has change listeners). */
     select<K extends keyof T>(key: K) {
         const c = new Dentata(this.data[key], this, key)
         if (!this.children.has(key)) {
@@ -64,7 +66,7 @@ export class Dentata<T> {
         return this.select(key)
     }
 
-    /** Listen for changes to the data at this cursor, including changes originating in parents or children */
+    /** Listen for changes to the data at this cursor, including changes originating in parents or children.  */
     onChange(handleChange: Listener<T>) {
         this.listeners.push(handleChange)
     }
@@ -109,9 +111,10 @@ export interface DentataLike<T> {
 export function syntheticCursor<InputData, OutputData>(
     fromCursor: DentataLike<InputData>,
     compute: (t: DeepReadonly<InputData>) => OutputData,
-    { equality = "===" as "===" | "deep" },
+    settings: { equality: "===" | "deep" } = { equality: "===" },
 ): DentataLike<OutputData> {
     type ImOut = DeepReadonly<OutputData>
+    const { equality } = settings
     const listeners: Listener<OutputData>[] = []
     fromCursor.onChange((oldX, newX) => {
         const [oldY, newY] = [compute(oldX), compute(newX)]
