@@ -25,6 +25,12 @@ export class Dentata<T> {
     set(newVal: T, _parentKnows = false) {
         const oldVal = this.data
         this.data = newVal
+        if (
+            this.listeners.length === 0 &&
+            this.children.size === 0 &&
+            this.parent === undefined
+        )
+            return
         if (deepEquals(oldVal, newVal)) return
 
         for (const li of this.listeners) {
