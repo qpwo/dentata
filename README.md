@@ -1,21 +1,25 @@
-# dentata
-
-Simple, lean, and fully-typed data tree library with change listeners for node and the browser, javscript or typescript. A state manager that keeps things simple, fast, and understandable. A minimalist/bare-bones alternative to baobab. (Not to mention redux, etc.)
-
-Zero dependencies and 2.7kb gzipped.
-
-It is fully synchronous so no surprises waiting for your changes to propagate, or passing callbacks to set, which avoids many errors in both UIs and APIs.
-
-You make a tree/cursor with `new Dentata(data)` and just have `get`, `set`, `apply(update: old => new)`, and `onChange(handler)`. This is flexible enough to manage state server-side, with simple DOM-based apps, in react, or in libraries. A change event will only fire if the new data is actually different, and will always fire if anything at or below the cursor is different.
-
-Thanks to a cached deep equality check, all of this is very fast. The diff is only taken on nodes that have children or listeners, so it is often avoided.
-
-If your editor supports typescript well (e.g. vscode) then you also get auto-complete for keys and compile-time errors for invalid keys or values.
+# dentata: the American Chestnut of data trees
 
 ```
 npm install dentata
 yarn add dentata
 ```
+
+![annotated-chestnut-tree](https://user-images.githubusercontent.com/10591373/152053585-4b392b90-af82-44d2-ad46-fc7c39c560cb.jpg)
+
+
+Simple, lean, and fully-typed data tree library with change listeners for node and the browser, javscript or typescript. A state manager that keeps things **simple, fast, and understandable**. A minimalist/bare-bones alternative to baobab. (Not to mention redux, etc.)
+
+**Zero dependencies and 2.7kb gzipped.**
+
+It is fully **synchronous** so no surprises waiting for your changes to propagate, or passing callbacks to set, which avoids many errors in both UIs and APIs.
+
+You make a tree/cursor with `new Dentata(data)` and just have `get`, `set`, `apply(update: old => new)`, and `onChange(handler)`. This is flexible enough to manage state server-side, with simple DOM-based apps, in react, or in libraries. **A change event will only fire if the new data is actually different**, and will always fire if anything at or below the cursor is different.
+
+Thanks to a **cached deep equality check**, all of this is very fast. The diff is only taken on nodes that have children or listeners, so it is often avoided.
+
+If your editor supports typescript well (e.g. vscode) then you also get auto-complete for keys and compile-time errors for invalid keys or values.
+
 
 ## Auto-complete and compile-time errors
 
@@ -28,8 +32,12 @@ yarn add dentata
 
 ## Complete basic example
 
+This whole thing will run if you copy-paste it into node
+
 ```js
-import { Dentata } from 'dentata';
+const { Dentata } = require('dentata')
+// or:
+// import { Dentata } from 'dentata';
 
 const dentata = new Dentata({array: [5,6,7], nested: {objects: {are: 'fine'}}})
 
@@ -64,6 +72,8 @@ dentata.set(null)
 ```
 
 ## React Example
+
+**No more passing val1, setVal1, val2, setVal2 through props! Just pass the cursor, or select it from the root, or export it as a constant.** There's no render cycle, parent context, transpilation, daemon, etc, it's just a data tree.
 
 ```jsx
 function useDentata(cursor) {
