@@ -14,16 +14,20 @@ export type Listener<T> = (
 export class Dentata<T> {
     private listeners: Listener<T>[] = []
     private children: Map<keyof T, Dentata<any>[]> = new Map()
+    private data: T
+    private beenGot = false
     constructor(
-        private data: T,
+        data: T,
         private parent?: Dentata<any>,
         private fromKey?: PropertyKey,
     ) {
         if (data === undefined)
             throw Error("must instantiate with non-undefined data")
+        this.data = shallowCopy(data)
     }
     /** Get the current value at the cursor */
     get(): DeepReadonly<T> {
+        this.beenGot = true
         return this.data as DeepReadonly<T>
     }
     /** Set data of current cursor and notify relevant onChange listeners. Set to `undefined` to remove all listeners and descendant cursors. */
@@ -57,6 +61,12 @@ export class Dentata<T> {
             this?.parent?.setFromBelow(this, this.fromKey!, newVal)
     }
 
+    setIn<K extends keyof T>(k: K, val: T[K]): void {
+        if (deepEquals(val, this.data?.[k])) return
+        this.setFromBelow(null, k, val)
+        // this.set({ ...this.data, [k]: val }, false, true)
+    }
+
     /** Alias for get + set. Update the old value into a new value. Do not mutate the argument. */
     apply(update: (prev: DeepReadonly<T>) => T) {
         const new_ = update(this.data as DeepReadonly<T>)
@@ -65,7 +75,7 @@ export class Dentata<T> {
 
     /** Get a cursor deeper into the tree. It will be notified of parent changes and will tell parent if it changes (if either has change listeners). */
     select<K extends keyof T>(key: K) {
-        const c = new Dentata(this.data[key], this, key)
+        const c = new Dentata(shallowCopy(this.data[key]), this, key)
         if (!this.children.has(key)) {
             this.children.set(key, [])
         }
@@ -87,14 +97,22 @@ export class Dentata<T> {
         this.listeners.splice(0, this.listeners.length)
     }
 
+    /** Assumes the newVal is different so skips equality check */
     private setFromBelow<K extends keyof T>(
-        child: Dentata<any>,
+        child: Dentata<any> | null,
         key: K,
         newVal: T[K],
     ): void {
-        const oldVal = this.data
-        // @ts-expect-error
-        this.data = Array.isArray(this.data) ? [...this.data] : { ...this.data }
+        let oldVal = null
+        if (this.listeners.length > 0) {
+            oldVal = shallowCopy(this.data)
+        }
+        // don't make a copy unless the data has had .get() called on it.
+        // This way you can can do many sets between gets cheaply
+        if (this.beenGot) {
+            this.data = shallowCopy(this.data)
+            this.beenGot = false
+        }
         this.data[key] = newVal
         for (const li of this.listeners) {
             li(this.data as DeepReadonly<T>, oldVal as DeepReadonly<T>)
@@ -194,6 +212,18 @@ function memoize<Args extends unknown[], Result extends unknown>(
         return result
     }
     return g
+}
+
+function shallowCopy<T>(x: T): T {
+    if (typeof x === "object") {
+        if (x == null) return x
+        if (Array.isArray(x)) {
+            // @ts-expect-error
+            return [...x]
+        }
+        return { ...x }
+    }
+    return x
 }
 
 type DeepReadonly<T> = T extends (infer R)[]
