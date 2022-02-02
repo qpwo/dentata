@@ -192,6 +192,11 @@ describe("blah", () => {
         expect(deepEquals(f, f)).toEqual(true)
         expect(deepEquals(f, () => {})).toEqual(false)
     })
+    it("doesnt make deepequals crash with recursive objects", () => {
+        const o: Record<string, unknown> = { a: 1 }
+        o["o"] = o
+        expect(deepEquals(o, o)).toEqual(true)
+    })
 })
 
 /* function test() {
