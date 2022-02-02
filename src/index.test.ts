@@ -114,7 +114,12 @@ describe("blah", () => {
         const c = new Dentata(o)
         c.select("a").set(2)
         expect(o).toEqual({ a: 1 })
-        expect(c.get()).toEqual({ a: 2 })
+        const o2 = c.get()
+        expect(o2).toEqual({ a: 2 })
+        c.select("a").set(3)
+        expect(o).toEqual({ a: 1 })
+        expect(o2).toEqual({ a: 2 })
+        expect(c.get()).toEqual({ a: 3 })
     })
     it("has working synthetic cursors", () => {
         const rect = new Dentata({ w: 5, h: 10 })
@@ -196,6 +201,82 @@ describe("blah", () => {
         const o: Record<string, unknown> = { a: 1 }
         o["o"] = o
         expect(deepEquals(o, o)).toEqual(true)
+    })
+    it("is reasonably fast", () => {
+        const start1 = performance.now()
+        const r = () => Math.random()
+
+        const smallTrees = 100_000
+        const bigTreeSize = smallTrees
+        const heavyTreeSize = smallTrees / 50
+        const probChangeLevel = 100 / smallTrees
+        // make a bunch of trees
+        for (let i = 0; i < smallTrees; i++) {
+            const d = new Dentata(r())
+            d.get()
+        }
+        const smallTreesDuration = performance.now() - start1
+
+        const start2 = performance.now()
+        // make one big tree
+        let c = new Dentata<any>({})
+        let depth = 0
+        let maxDepth = 0
+        for (let i = 0; i < bigTreeSize; i++) {
+            const key = r()
+            c.setIn(key, {})
+            if (r() < probChangeLevel) {
+                if (r() < 0.5) {
+                    // descend
+                    c = c.select(key)
+                    depth += 1
+                    maxDepth = Math.max(maxDepth, depth)
+                } else {
+                    // ascend
+                    // @ts-expect-error
+                    c = c.parent ?? c
+                    depth = Math.max(0, depth - 1)
+                }
+            }
+        }
+        const bigTreeDuration = performance.now() - start2
+
+        const start3 = performance.now()
+        let c2 = new Dentata<any>({})
+        for (let i = 0; i < heavyTreeSize; i++) {
+            c2.onChange(() => {})
+            const key = r()
+            c2.setIn(key, {})
+            const temp = c2.select(key)
+            temp.onChange(() => {})
+            c2.get()
+            temp.get()
+            if (r() < probChangeLevel) {
+                if (r() < 0.5) {
+                    // descend
+                    c2 = c2.select(key)
+                    depth += 1
+                    maxDepth = Math.max(maxDepth, depth)
+                } else {
+                    // ascend
+                    // @ts-expect-error
+                    c2 = c2.parent ?? c2
+                    depth = Math.max(0, depth - 1)
+                }
+            }
+        }
+        const heavyTreeDuration = performance.now() - start3
+        const totalDuration = performance.now() - start1
+        console.log({
+            smallTrees,
+            smallTreesDuration,
+            bigTreeSize,
+            maxDepth,
+            bigTreeDuration,
+            heavyTreeSize,
+            heavyTreeDuration,
+        })
+        expect(totalDuration).toBeLessThan(1000 * 30)
     })
 })
 
