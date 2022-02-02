@@ -5,7 +5,12 @@ export type Listener<T> = (
     oldVal: DeepReadonly<T>,
 ) => void
 
-/** An extremely simple and fast state manager / data tree*/
+/** An extremely simple and fast state manager / data tree
+ * Behavior is well-defined for arrays, objects, functions, string, number, bigint, boolean, undefined, symbol, and null.
+ * Setting a cursor to undefined removes all listeners and descendent cursors.
+ * Deleting an object or array key also clears associated descendant cursors and listeners.
+ * Behavior is not well-defined for Set, Map, Date, Error, regex, buffers / typed arrays, WebAssembly, etc.
+ */
 export class Dentata<T> {
     private listeners: Listener<T>[] = []
     private children: Map<keyof T, Dentata<any>[]> = new Map()
@@ -139,7 +144,13 @@ export function syntheticCursor<InputData, OutputData>(
     }
 }
 
-const deepEquals = memoize(deepEquals_, 50000)
+/** The cached equality algorithm, mainly exported so you can test it for your particular case.
+ * The last 50k input pairs are cached using their object ids via a js Map.
+ * It does nothing fancy, just direct `===` comparison for everything except arrays & objects & NaN.
+ * Note that unlike lodash.isEqual, deepEquals(Object(1), 1) is false.
+ * It uses Reflect.ownKeys() to get symbol keys from objects.
+ */
+export const deepEquals = memoize(deepEquals_, 50000)
 function deepEquals_(a: unknown, b: unknown): boolean {
     if (a === b || (Number.isNaN(a) && Number.isNaN(b))) return true
 
@@ -159,12 +170,11 @@ function deepEquals_(a: unknown, b: unknown): boolean {
         return a.every((ai, i) => deepEquals(ai, b[i]))
     }
     // both regular objects
-    const ak = Object.keys(a)
-    const bk = Object.keys(b)
+    const ak = Reflect.ownKeys(a)
+    const bk = Reflect.ownKeys(b)
     if (ak.length !== bk.length) return false
-    ak.sort()
-    bk.sort()
-    if (!ak.every((aki, i) => aki === bk[i])) return false
+    for (const k of ak) if (!Reflect.has(a, k)) return false
+    for (const k of bk) if (!Reflect.has(b, k)) return false
     // @ts-expect-error
     return ak.every(k => deepEquals(a[k], b[k]))
 }
