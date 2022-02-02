@@ -1,4 +1,4 @@
-import { Dent, Dentata, syntheticCursor } from "./"
+import { deepEquals, Dent, Dentata, syntheticCursor } from "./"
 
 describe("blah", () => {
     it("basic", () => {
@@ -96,6 +96,19 @@ describe("blah", () => {
             return o
         })
     })
+    it("can hold callbacks", () => {
+        const f = () => {}
+        const d = new Dentata(f)
+        expect(d.get()).toEqual(f)
+        let count = 0
+        d.onChange(() => count++)
+        d.set(f)
+        expect(count).toEqual(0)
+        const f2 = () => {}
+        d.set(f2)
+        d.set(f2)
+        expect(count).toEqual(1)
+    })
     it("doesnt mutate input data", () => {
         const o = { a: 1 }
         const c = new Dentata(o)
@@ -114,6 +127,70 @@ describe("blah", () => {
         expect(changed).toEqual(false)
         rect.s("w").set(20)
         expect(changed).toEqual(true)
+    })
+    it("doesnt trigger listeners with unchanged data", () => {
+        // Make a new data tree. The root cursor is just like any other cursor.
+        const dentata = new Dentata({
+            array: [5, 6, 7],
+            nested: { objects: { are: "fine" } },
+        })
+
+        // Select some cursors inside the tree:
+        const arrayCursor = dentata.select("array")
+        // `s` is an alias for `select`
+        const areCursor = dentata.s("nested").s("objects").s("are")
+
+        let counter = 0
+        // We'll just log changes to our cursors. More useful onChangers would update UI or trigger server actions or recalculate a value or whatever.
+        arrayCursor.onChange(() => counter++)
+        areCursor.onChange(() => counter++)
+        dentata.onChange(() => counter++)
+        dentata.set({ array: [5, 6, 7], nested: { objects: { are: "fine" } } })
+        expect(counter).toEqual(0)
+    })
+    it("has good deepequals", () => {
+        expect(deepEquals(5, 5)).toEqual(true)
+        expect(deepEquals(0, -0)).toEqual(true)
+        expect(deepEquals(0, 1)).toEqual(false)
+        expect(deepEquals("foo", "bar")).toEqual(false)
+        expect(deepEquals("foo", "foo")).toEqual(true)
+        expect(deepEquals("", "")).toEqual(true)
+        expect(deepEquals(null, {})).toEqual(false)
+        expect(deepEquals(null, undefined)).toEqual(false)
+        expect(deepEquals(null, false)).toEqual(false)
+        expect(deepEquals(null, null)).toEqual(true)
+        expect(deepEquals({}, {})).toEqual(true)
+        expect(deepEquals([], [])).toEqual(true)
+        const s1 = Symbol()
+        const s2 = Symbol()
+        expect(deepEquals(s1, s2)).toEqual(false)
+        expect(deepEquals(s1, s1)).toEqual(true)
+        const o1 = {
+            [s1]: "foo",
+            bar: { rosco: "baz", bum: "fum", nums: [1, 2, 3, 4] },
+        }
+        const o2 = {
+            [s2]: "foo",
+            bar: { rosco: "baz", bum: "fum", nums: [1, 2, 3, 4] },
+        }
+        const o3 = {
+            [s1]: "foo",
+            bar: { rosco: "baz", bum: "fum", nums: [1, 2, 3, 4] },
+        }
+        expect(deepEquals(o1, o1)).toEqual(true)
+        expect(deepEquals(o1, o3)).toEqual(true)
+        expect(deepEquals(o1, o2)).toEqual(false)
+        expect(deepEquals(o3, o2)).toEqual(false)
+        expect(deepEquals({ [s1]: "x" }, {})).toEqual(false)
+        expect(
+            deepEquals({ [s1]: "x", y: "z", a: "b" }, { y: "z", a: "b" }),
+        ).toEqual(false)
+        expect(deepEquals([1, 2, 3, 4], [1, 2, 3, 4, 5])).toEqual(false)
+        expect(deepEquals([1, 2, 3, 4], [1, 2, 3, 4])).toEqual(true)
+        expect(deepEquals(0, 0)).toEqual(true)
+        const f = () => {}
+        expect(deepEquals(f, f)).toEqual(true)
+        expect(deepEquals(f, () => {})).toEqual(false)
     })
 })
 
