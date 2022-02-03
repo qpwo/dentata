@@ -1,8 +1,8 @@
 {
     "name": "dentata",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "private": false,
-    "description": "Simple, lean, and fully-typed data tree with change listeners for node and the browser. Works well with react or anything.",
+    "description": "Zero-dependency fully-typed performant data tree for node and the browser. 3kb gzipped.",
     "repository": {
         "type": "git",
         "url": "https://github.com/qpwo/dentata.git"
