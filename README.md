@@ -153,3 +153,51 @@ Results from the "is reasonably fast" test in `index.test.ts` in node v17.4.0 on
 ## Contribution
 
 Pull requests and new issues are welcome. I don't want to make it too complicated. If you want a big new feature then I recommend making a fork, or checking out something like baobab or redux. Please do file an issue right away if you notice a bug or performance problem
+
+## Full API
+
+```ts
+class Dentata<T> {
+    constructor(data: T);
+    // Get the current value at the cursor
+    get(): DeepReadonly<T>;
+    // Set data of current cursor and notify relevant onChange listeners. Set to `undefined` to remove all listeners and descendant cursors.
+    set(newVal: T): void;
+    // Set value at key
+    setIn<K extends keyof T>(k: K, val: T[K]): void;
+    // Alias for get + set. Update the old value into a new value. Do not mutate the argument.
+    apply(update: (prev: DeepReadonly<T>) => T): void;
+    // Get a cursor deeper into the tree. It will be notified of parent changes and will tell parent if it changes (if either has change listeners).
+    select<K extends keyof T>(key: K): Dentata<T[K]>;
+    // Alias for Dentata.select
+    s<K extends keyof T>(key: K): Dentata<T[K]>;
+    // Listen for changes to the data at this cursor, including changes originating in parents or children.
+    onChange(handleChange: Listener<T>): void;
+    // Remove all onChange listeners on this cursor
+    clearListeners(): void;
+}
+
+// An onChange callback
+type Listener<T> = (newVal: DeepReadonly<T>, oldVal: DeepReadonly<T>) => void;
+
+// Alias for Dentata
+const Dent: typeof Dentata;
+type Dent<T> = Dentata<T>;
+
+// Return type of syntheticCursor
+interface DentataLike<T> {
+    get: () => DeepReadonly<T>;
+    onChange: (l: Listener<T>) => void;
+}
+
+// Create a synthetic data cursor for computed values on another data cursor
+function syntheticCursor<InputData, OutputData>(
+    fromCursor: DentataLike<InputData>,
+    compute: (t: DeepReadonly<InputData>) => OutputData,
+    settings?: { equality: "===" | "deep"; }
+    ): DentataLike<OutputData>;
+
+// The cached equality algorithm, mainly exported so you can test it for your particular case
+// The last 50k input pairs are cached using their object ids via a js Map.
+function deepEquals (a: unknown, b: unknown) => boolean;
+```
