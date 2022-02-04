@@ -162,14 +162,12 @@ export function syntheticCursor<InputData, OutputData>(
     }
 }
 
-/** The cached equality algorithm, mainly exported so you can test it for your particular case.
- * The last 50k input pairs are cached using their object ids via a js Map.
+/** The equality algorithm, mainly exported so you can test it for your particular case.
  * It does nothing fancy, just direct `===` comparison for everything except arrays & objects & NaN.
  * Note that unlike lodash.isEqual, deepEquals(Object(1), 1) is false.
  * It uses Reflect.ownKeys() to get symbol keys from objects.
  */
-export const deepEquals = memoize(deepEquals_, 50000)
-function deepEquals_(a: unknown, b: unknown): boolean {
+export function deepEquals(a: unknown, b: unknown): boolean {
     if (a === b || (Number.isNaN(a) && Number.isNaN(b))) return true
 
     // prettier-ignore
@@ -195,23 +193,6 @@ function deepEquals_(a: unknown, b: unknown): boolean {
     for (const k of bk) if (!Reflect.has(b, k)) return false
     // @ts-expect-error
     return ak.every(k => deepEquals(a[k], b[k]))
-}
-
-function memoize<Args extends unknown[], Result extends unknown>(
-    f: (...args: Args) => Result,
-    maxSize = -1,
-): (...args: Args) => Result {
-    const map = new Map<Args, Result>()
-    function g(...args: Args): Result {
-        if (map.has(args)) return map.get(args)!
-
-        if (maxSize > 0 && map.size >= maxSize) map.clear()
-
-        const result = f(...args)
-        map.set(args, result)
-        return result
-    }
-    return g
 }
 
 function shallowCopy<T>(x: T): T {

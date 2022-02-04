@@ -278,7 +278,7 @@ describe("blah", () => {
         })
         expect(totalDuration).toBeLessThan(1000 * 30)
     })
-    it("has deepEquals caching not fail", () => {
+    it("has deepEquals still work", () => {
         const o1 = { x: 1 }
         const o2 = { x: 1 }
         expect(deepEquals(o1, o2)).toEqual(true)

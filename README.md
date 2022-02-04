@@ -27,7 +27,7 @@ num.apply(prev => prev + 1)
 - It is fully **synchronous** so no surprises waiting for your changes to propagate, or passing callbacks to set, which avoids many errors in both UIs and APIs.
 - You make a tree/cursor with `new Dentata(data)` and just have `get`, `set`, `apply(update: old => new)`, and `onChange(handler)`. This is flexible enough to manage state server-side, with simple DOM-based apps, in react, or in libraries. **A change event will only fire if the new data is actually different**, and will always fire if anything at or below the cursor is different.
 - Values from `get` and `apply` and `onChange` are **deeply immutable** via typescript's readonly modifier. So if you are using typescript then you will never mess up your tree by accidentally modifying a return value.
-- Thanks to a **cached deep equality check**, all of this is very fast. The diff is only taken on nodes that have children or listeners, so it is often avoided.
+- Thanks to an optimized deep equality check, all of this is very fast. The diff is only taken on nodes that have children or listeners, so it is often avoided.
 - If your editor supports typescript well (e.g. vscode) then you also get auto-complete for keys and compile-time errors for invalid keys or values.
 
 ## Auto-complete and compile-time errors
@@ -197,7 +197,6 @@ function syntheticCursor<InputData, OutputData>(
     settings?: { equality: "===" | "deep"; }
     ): DentataLike<OutputData>;
 
-// The cached equality algorithm, mainly exported so you can test it for your particular case
-// The last 50k input pairs are cached using their object ids via a js Map.
+// The equality algorithm, mainly exported so you can test it for your particular case
 function deepEquals (a: unknown, b: unknown) => boolean;
 ```

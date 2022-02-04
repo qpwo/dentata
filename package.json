@@ -1,6 +1,6 @@
 {
     "name": "dentata",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "private": false,
     "description": "Zero-dependency fully-typed performant data tree for node and the browser. 3kb gzipped.",
     "repository": {
